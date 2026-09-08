@@ -51,12 +51,13 @@ pip install -r requirements.txt
 python app.py
 
 ### 2. Run Node Backend (Port 5000)
-Bash
+```bash
 cd backend
 npm install
 npm run server
+
 ### 3. Run Frontend (Port 5173)
-Bash
+```bash
 cd frontend
 npm install
 npm run dev
