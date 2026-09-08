@@ -1,0 +1,31 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+/* Light/Dark mode base using standard CSS */
+body {
+  background-color: #ffffff;
+  color: #111827; 
+  transition: background-color 0.3s ease-in-out, color 0.3s ease-in-out;
+}
+
+.dark body {
+  background-color: #111827; 
+  color: #ffffff;
+}
+/* =========================================
+   GOOGLE TRANSLATE - PREMIUM HIDING
+   ========================================= */
+.skiptranslate iframe,
+.goog-te-banner-frame.skiptranslate {
+  display: none !important;
+}
+
+body {
+  top: 0px !important;
+}
+
+/* Original ugly widget ko completely hide kardo */
+#google_translate_element {
+  display: none !important;
+}
