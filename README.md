@@ -50,15 +50,15 @@ python -m venv venv
 pip install -r requirements.txt
 python app.py
 
-2. Run Node Backend (Port 5000)
+### 2. Run Node Backend (Port 5000)
 Bash
 cd backend
 npm install
 npm run server
-3. Run Frontend (Port 5173)
+### 3. Run Frontend (Port 5173)
 Bash
 cd frontend
 npm install
 npm run dev
 
-Developed with ❤️ by Manas Gupta
+Developed with ❤️ by Manas Gupta & Team
