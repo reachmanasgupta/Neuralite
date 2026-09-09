@@ -483,6 +483,12 @@ def analyze_food():
         return jsonify({"status": "success", "data": json.loads(response_text)})
     except Exception as e:
         return jsonify({"error": f"Food Analysis Error: {str(e)}"}), 500
-
+    
 if __name__ == '__main__':
-    app.run(port=8000, debug=True)
+    import os
+    # Render khud apna port deta hai, warna default 8000
+    port = int(os.environ.get("PORT", 8000))
+    
+    # debug=False karna bohot zaroori hai memory bachane ke liye
+    # host='0.0.0.0' internet par live karne ke liye hai
+    app.run(host='0.0.0.0', port=port, debug=False)
