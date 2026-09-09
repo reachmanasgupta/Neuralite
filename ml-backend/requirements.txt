@@ -2,9 +2,9 @@ Flask==3.0.2
 Flask-Cors==4.0.0
 google-generativeai==0.4.1
 python-dotenv==1.0.1
-tensorflow==2.15.0
-numpy==1.26.4
-pandas==2.2.1
-joblib==1.3.2
-Pillow==10.2.0
-Werkzeug==3.0.1
+tensorflow-cpu
+numpy
+pandas
+joblib
+Pillow
+Werkzeug
