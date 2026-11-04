@@ -225,9 +225,7 @@ def chat_text():
             # TRY WITH SYSTEM INSTRUCTIONS
             response = generate_with_fallback(chat_sessions[user_id], system_instruction=system_text)
             bot_reply = response.text
-        except Exception as e:
-            err_str = str(e).lower()
-            if "system_instruction" in err_msg or "support" in err_str:
+            if "system_instruction" in err_str or "support" in err_str:
                 print(f"⚠️ System Instruction reject ho gayi. Fallback lag raha hai...")
                 fallback_history = [
                     {"role": "user", "parts": [system_text]},
