@@ -6,6 +6,9 @@ import DatePicker from 'react-datepicker';
 import "react-datepicker/dist/react-datepicker.css";
 import { ResponsiveContainer, LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, Legend } from 'recharts';
 
+const API_URL = (import.meta.env.VITE_BACKEND_URL || 'http://localhost:5000').replace(/\/$/, '');
+const ML_API_URL = (import.meta.env.VITE_ML_API_URL || 'http://localhost:8000').replace(/\/$/, '');
+
 const loadRazorpay = () => {
   return new Promise((resolve) => {
     const script = document.createElement('script');
@@ -26,6 +29,10 @@ export default function Dashboard() {
   const [myAppointments, setMyAppointments] = useState([]); 
   const [healthRecords, setHealthRecords] = useState([]);
   const [currentDate, setCurrentDate] = useState('');
+  const [isDashboardLoading, setIsDashboardLoading] = useState(true);
+  const [dashboardError, setDashboardError] = useState('');
+  const [doctorsError, setDoctorsError] = useState('');
+  const [appointmentsError, setAppointmentsError] = useState('');
 
   // Booking States
   const [showModal, setShowModal] = useState(false);
@@ -43,6 +50,7 @@ export default function Dashboard() {
   const [showParchiModal, setShowParchiModal] = useState(false);
   const [selectedParchi, setSelectedParchi] = useState(null);
   const [parchiResult, setParchiResult] = useState(null);
+  const [parchiPreview, setParchiPreview] = useState(null);
   const [isParchiLoading, setIsParchiLoading] = useState(false);
   const parchiInputRef = useRef(null);
 
@@ -109,7 +117,7 @@ export default function Dashboard() {
     if (!url) return null;
     if (url.startsWith('http') || url.startsWith('data:')) return url;
     const cleanUrl = url.replace(/\\/g, '/').replace(/^\//, '');
-    return `http://localhost:5000/${cleanUrl}`;
+    return `${API_URL}/${cleanUrl}`;
   };
 
   const isFilePath = (str) => {
@@ -199,49 +207,101 @@ export default function Dashboard() {
     return () => { if (speechSynthRef.current) speechSynthRef.current.cancel(); };
   }, []);
 
-  useEffect(() => {
-    const checkAuthAndFetchData = async () => {
-      const token = localStorage.getItem('token');
-      const storedUser = localStorage.getItem('user');
+  const fetchDashboardData = async () => {
+    const token = localStorage.getItem('token');
+    const storedUser = localStorage.getItem('user');
 
-      if (!token || !storedUser) {
-        navigate('/login');
-        return;
+    if (!token || !storedUser) {
+      navigate('/login');
+      return;
+    }
+
+    setIsDashboardLoading(true);
+    setDashboardError('');
+    setDoctorsError('');
+    setAppointmentsError('');
+
+    let parsedUser;
+    try {
+      parsedUser = JSON.parse(storedUser);
+      setUser(parsedUser);
+    } catch (error) {
+      console.error('Invalid stored user data:', error);
+      localStorage.removeItem('token');
+      localStorage.removeItem('user');
+      navigate('/login');
+      setIsDashboardLoading(false);
+      return;
+    }
+
+    const currentUserId = parsedUser?._id || parsedUser?.id;
+    const headers = { Authorization: `Bearer ${token}` };
+
+    // Run independent requests together. On Render free tier, sequential calls
+    // can each wait for a sleeping service and make the dashboard feel frozen.
+    const requests = await Promise.allSettled([
+      fetch(`${API_URL}/api/doctor/all`),
+      fetch(`${API_URL}/api/appointment/my-appointments`, { headers }),
+      currentUserId
+        ? fetch(`${API_URL}/api/health-records/my-history/${currentUserId}`, { headers })
+        : Promise.resolve(null)
+    ]);
+
+    const readJson = async (result) => {
+      if (result.status !== 'fulfilled') throw result.reason;
+      if (!result.value) return null;
+      if (!result.value.ok) {
+        const message = `Request failed (${result.value.status})`;
+        throw new Error(message);
       }
-
-      try {
-        const parsedUser = JSON.parse(storedUser);
-        setUser(parsedUser); 
-        const currentUserId = parsedUser?._id || parsedUser?.id;
-
-        const docsResponse = await fetch('http://localhost:5000/api/doctor/all');
-        if (docsResponse.ok) {
-          const docsData = await docsResponse.json();
-          setDoctors(docsData || []); 
-        }
-
-        const apptResponse = await fetch('http://localhost:5000/api/appointment/my-appointments', {
-            headers: { 'Authorization': `Bearer ${token}` }
-        });
-        if (apptResponse.ok) {
-            const apptData = await apptResponse.json();
-            setMyAppointments(apptData || []); 
-        }
-
-        if (currentUserId) {
-            const historyResponse = await fetch(`http://localhost:5000/api/health-records/my-history/${currentUserId}`, {
-                headers: { 'Authorization': `Bearer ${token}` }
-            });
-            if (historyResponse.ok) {
-                const historyData = await historyResponse.json();
-                setHealthRecords(historyData.data || []);
-            }
-        }
-      } catch (error) {
-        console.error('Error fetching data:', error);
-      }
+      return result.value.json();
     };
-    checkAuthAndFetchData();
+
+    try {
+      const docsData = await readJson(requests[0]);
+      const docsList = Array.isArray(docsData)
+        ? docsData
+        : docsData?.doctors || docsData?.data || [];
+      setDoctors(Array.isArray(docsList) ? docsList : []);
+    } catch (error) {
+      console.error('Doctors loading error:', error);
+      setDoctorsError(error.message || 'Could not load doctors.');
+      setDoctors([]);
+    }
+
+    try {
+      const apptData = await readJson(requests[1]);
+      const appointments = Array.isArray(apptData)
+        ? apptData
+        : apptData?.appointments || apptData?.data || [];
+      setMyAppointments(Array.isArray(appointments) ? appointments : []);
+    } catch (error) {
+      console.error('Appointments loading error:', error);
+      setAppointmentsError(error.message || 'Could not load appointments.');
+      setMyAppointments([]);
+    }
+
+    if (currentUserId && requests[2].status === 'fulfilled' && requests[2].value) {
+      try {
+        const historyData = await readJson(requests[2]);
+        const records = Array.isArray(historyData)
+          ? historyData
+          : historyData?.data || historyData?.records || [];
+        setHealthRecords(Array.isArray(records) ? records : []);
+      } catch (error) {
+        console.error('Health records loading error:', error);
+        setDashboardError('Some dashboard data could not be loaded. Please retry.');
+      }
+    }
+
+    if (requests[0].status === 'rejected' && requests[1].status === 'rejected') {
+      setDashboardError('Unable to connect to the backend. The Render service may be waking up; please retry in a moment.');
+    }
+    setIsDashboardLoading(false);
+  };
+
+  useEffect(() => {
+    fetchDashboardData();
   }, [navigate]);
 
   const handleLogout = () => {
@@ -271,7 +331,7 @@ export default function Dashboard() {
 
     if (paymentMode === 'Offline') {
         try {
-            const apptRes = await fetch('http://localhost:5000/api/appointment/book', {
+            const apptRes = await fetch(`${API_URL}/api/appointment/book`, {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${token}` },
                 body: JSON.stringify({ 
@@ -305,7 +365,7 @@ export default function Dashboard() {
 
     const fee = selectedDoctor?.consultationFee || 500;
     try {
-        const orderResponse = await fetch('http://localhost:5000/api/appointment/create-payment', {
+        const orderResponse = await fetch(`${API_URL}/api/appointment/create-payment`, {
             method: 'POST',
             headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${token}` },
             body: JSON.stringify({ amount: fee })
@@ -322,7 +382,7 @@ export default function Dashboard() {
             order_id: orderData.id,
             handler: async function (response) {
                 try {
-                    const apptRes = await fetch('http://localhost:5000/api/appointment/book', {
+                    const apptRes = await fetch(`${API_URL}/api/appointment/book`, {
                         method: 'POST',
                         headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${token}` },
                         body: JSON.stringify({ 
@@ -371,7 +431,7 @@ export default function Dashboard() {
 
     const totalCost = medicines.length * 150; 
     try {
-        const orderResponse = await fetch('http://localhost:5000/api/appointment/create-payment', {
+        const orderResponse = await fetch(`${API_URL}/api/appointment/create-payment`, {
             method: 'POST',
             headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${token}` },
             body: JSON.stringify({ amount: totalCost })
@@ -411,7 +471,7 @@ export default function Dashboard() {
     if (!window.confirm("Are you sure you want to cancel this appointment?")) return;
     const token = localStorage.getItem('token');
     try {
-      const response = await fetch(`http://localhost:5000/api/appointment/cancel/${appointmentId}`, {
+      const response = await fetch(`${API_URL}/api/appointment/cancel/${appointmentId}`, {
         method: 'PUT',
         headers: { 'Authorization': `Bearer ${token}` }
       });
@@ -433,7 +493,7 @@ export default function Dashboard() {
     setIsParchiLoading(true); setParchiResult(null);
     const formData = new FormData(); formData.append('file', selectedParchi);
     try {
-      const response = await fetch('http://localhost:8000/api/analyze-prescription', { method: 'POST', body: formData });
+      const response = await fetch(`${ML_API_URL}/api/analyze-prescription`, { method: 'POST', body: formData });
       const data = await response.json();
       if (response.ok) {
         setParchiResult(data.message);
@@ -453,7 +513,7 @@ export default function Dashboard() {
     setIsXrayLoading(true); setXrayResult(null);
     const formData = new FormData(); formData.append('file', selectedXray);
     try {
-      const response = await fetch('http://127.0.0.1:8000/api/analyze-xray', { method: 'POST', body: formData });
+      const response = await fetch(`${ML_API_URL}/api/analyze-xray`, { method: 'POST', body: formData });
       const data = await response.json();
       if (response.ok) { setXrayResult(data); } 
       else { setXrayResult({ error: data.error }); }
@@ -467,7 +527,7 @@ export default function Dashboard() {
     if (!wellnessInput.trim()) return;
     setIsWellnessLoading(true); setWellnessResult(null);
     try {
-      const response = await fetch('http://localhost:8000/api/wellness-plan', {
+      const response = await fetch(`${ML_API_URL}/api/wellness-plan`, {
         method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ problem: wellnessInput })
       });
       const data = await response.json();
@@ -481,7 +541,7 @@ export default function Dashboard() {
     e.preventDefault();
     setIsStressLoading(true); setStressResult(null);
     try {
-      const response = await fetch('http://localhost:8000/api/analyze-stress', {
+      const response = await fetch(`${ML_API_URL}/api/analyze-stress`, {
         method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(stressAnswers)
       });
       const data = await response.json();
@@ -501,7 +561,7 @@ export default function Dashboard() {
     setIsSkinLoading(true); setSkinResult(null);
     const formData = new FormData(); formData.append('file', selectedSkinImage);
     try {
-      const response = await fetch('http://localhost:8000/api/analyze-skin', { method: 'POST', body: formData });
+      const response = await fetch(`${ML_API_URL}/api/analyze-skin`, { method: 'POST', body: formData });
       const data = await response.json();
       if (response.ok) { setSkinResult(data.data); } 
       else { setSkinResult({ error: data.error }); }
@@ -518,7 +578,7 @@ export default function Dashboard() {
     setIsLabLoading(true); setLabResult(null);
     const formData = new FormData(); formData.append('file', selectedLabImage);
     try {
-      const response = await fetch('http://localhost:8000/api/analyze-lab', { method: 'POST', body: formData });
+      const response = await fetch(`${ML_API_URL}/api/analyze-lab`, { method: 'POST', body: formData });
       const data = await response.json();
       if (response.ok) { setLabResult(data.data); } 
       else { setLabResult({ error: data.error }); }
@@ -535,7 +595,7 @@ export default function Dashboard() {
     setIsFoodLoading(true); setFoodResult(null);
     const formData = new FormData(); formData.append('file', selectedFoodImage);
     try {
-      const response = await fetch('http://localhost:8000/api/analyze-food', { method: 'POST', body: formData });
+      const response = await fetch(`${ML_API_URL}/api/analyze-food`, { method: 'POST', body: formData });
       const data = await response.json();
       if (response.ok) { setFoodResult(data.data); } 
       else { setFoodResult({ error: data.error }); }
@@ -547,7 +607,7 @@ export default function Dashboard() {
     e.preventDefault();
     setIsRiskLoading(true); setRiskResult(null);
     try {
-      const response = await fetch('http://localhost:8000/api/predict-health', {
+      const response = await fetch(`${ML_API_URL}/api/predict-health`, {
         method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(riskData)
       });
       const data = await response.json();
@@ -557,12 +617,12 @@ export default function Dashboard() {
         
         const token = localStorage.getItem('token');
         if (user?._id || user?.id) {
-            await fetch('http://localhost:5000/api/health-records/save', {
+            await fetch(`${API_URL}/api/health-records/save`, {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${token}` },
                 body: JSON.stringify({ userId: user._id || user.id, recordType: 'ML Risk Prediction', resultData: { inputs: riskData, prediction: data } })
             });
-            const histRes = await fetch(`http://localhost:5000/api/health-records/my-history/${user._id || user.id}`, { headers: { 'Authorization': `Bearer ${token}` } });
+            const histRes = await fetch(`${API_URL}/api/health-records/my-history/${user._id || user.id}`, { headers: { 'Authorization': `Bearer ${token}` } });
             if (histRes.ok) { const hd = await histRes.json(); setHealthRecords(hd.data || []); }
         }
       } else { setRiskResult({ error: data.error }); }
@@ -606,7 +666,7 @@ export default function Dashboard() {
     setChatMessages(prev => [...prev, { role: 'user', text: userMsg }]);
     setChatInput(''); setIsChatLoading(true); stopSpeaking(); 
     try {
-      const response = await fetch('http://localhost:8000/api/chat-text', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ message: userMsg }) });
+      const response = await fetch(`${ML_API_URL}/api/chat-text`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ message: userMsg }) });
       const data = await response.json();
       if (response.ok) { setChatMessages(prev => [...prev, { role: 'bot', text: data.message }]); speakText(data.message); } 
       else { setChatMessages(prev => [...prev, { role: 'bot', text: 'Error: ' + data.message }]); }
@@ -644,6 +704,12 @@ export default function Dashboard() {
       <div className="absolute top-0 left-[50%] -translate-x-1/2 w-[800px] h-[400px] bg-gradient-to-b from-cyan-500/10 to-transparent rounded-full blur-[120px] pointer-events-none z-0"></div>
 
       <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 relative z-10">
+        {dashboardError && (
+          <div className="mb-6 flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3 rounded-2xl border border-amber-200 bg-amber-50 p-4 text-sm text-amber-900">
+            <span>{dashboardError}</span>
+            <button onClick={fetchDashboardData} disabled={isDashboardLoading} className="shrink-0 rounded-lg bg-amber-700 px-4 py-2 font-bold text-white disabled:opacity-60">{isDashboardLoading ? 'Retrying...' : 'Retry loading'}</button>
+          </div>
+        )}
         
         {/* HEADER SECTION */}
         <div className="flex flex-col md:flex-row md:items-end justify-between gap-4 mb-10">
@@ -798,7 +864,10 @@ export default function Dashboard() {
         {/* MY APPOINTMENTS */}
         <div className="mb-14">
           <h2 className="text-xl font-bold text-slate-900 mb-5">{t('my_appointments')}</h2>
-          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-5">
+          {appointmentsError && <div className="mb-4 rounded-xl bg-amber-50 p-4 text-sm text-amber-800">{appointmentsError}</div>}
+          {isDashboardLoading ? (
+            <div className="bg-white p-8 rounded-3xl ring-1 ring-slate-200 text-center text-slate-500">Loading your appointments...</div>
+          ) : <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-5">
             {myAppointments.length > 0 ? (
               myAppointments.map((appt) => (
                 <div key={appt._id} className="bg-white p-6 rounded-3xl ring-1 ring-slate-200 shadow-sm flex flex-col relative overflow-hidden">
@@ -834,7 +903,7 @@ export default function Dashboard() {
             ) : (
               <div className="col-span-full bg-white p-8 rounded-3xl ring-1 ring-slate-200 text-center"><p className="text-slate-500 font-medium">No appointments.</p></div>
             )}
-          </div>
+          </div>}
         </div>
 
         {/* AVAILABLE DOCTORS */}
@@ -854,7 +923,10 @@ export default function Dashboard() {
               <button onClick={() => setRecommendedSpecialty(null)} className="text-slate-400 hover:text-slate-600 font-bold">X</button>
             </div>
           )}
-          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-5">
+          {doctorsError && <div className="mb-4 rounded-xl bg-amber-50 p-4 text-sm text-amber-800">{doctorsError}</div>}
+          {isDashboardLoading ? (
+            <div className="bg-white p-8 rounded-3xl ring-1 ring-slate-200 text-center text-slate-500">Loading available doctors...</div>
+          ) : <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-5">
             {filteredDoctors.length > 0 ? (
               filteredDoctors.map((doc, i) => (
                 <div key={i} className="bg-white p-6 rounded-2xl ring-1 ring-slate-200 flex flex-col">
@@ -876,7 +948,7 @@ export default function Dashboard() {
             ) : (
               <div className="col-span-full text-center p-8"><p className="text-slate-500">No doctors found.</p></div>
             )}
-          </div>
+          </div>}
         </div>
 
       </div>
