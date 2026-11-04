@@ -1,11 +1,13 @@
 import React, { useState } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
-import toast from 'react-hot-toast'; 
+import toast from 'react-hot-toast';
+
+const API_URL = import.meta.env.VITE_BACKEND_URL || 'http://localhost:5000';
 
 export default function Login() {
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
-  
+
   // NAYE STATES
   const [showOTP, setShowOTP] = useState(false);
   const [otp, setOtp] = useState('');
@@ -17,7 +19,7 @@ export default function Login() {
   const handleSubmit = async (e) => {
     e.preventDefault();
     try {
-      const response = await fetch('http://localhost:5000/api/auth/login', {
+      const response = await fetch(`${API_URL}/api/auth/login`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ email, password }),
@@ -29,7 +31,7 @@ export default function Login() {
         toast.success("Logged in successfully!");
         localStorage.setItem('token', data.token);
         localStorage.setItem('user', JSON.stringify(data.user));
-        
+
         if (data.user.role === 'doctor') {
           navigate('/doctor-dashboard');
         } else {
@@ -53,7 +55,7 @@ export default function Login() {
   const handleVerifyOTP = async (e) => {
     e.preventDefault();
     try {
-      const response = await fetch('http://localhost:5000/api/auth/verify-otp', {
+      const response = await fetch(`${API_URL}/api/auth/verify-otp`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ email: verifyEmail, otp }),
@@ -65,7 +67,7 @@ export default function Login() {
         toast.success("Account verified and logged in! 🎉");
         localStorage.setItem('token', data.token);
         localStorage.setItem('user', JSON.stringify(data.user));
-        
+
         if (data.user.role === 'doctor') navigate('/doctor-dashboard');
         else navigate('/dashboard');
       } else {
@@ -80,7 +82,7 @@ export default function Login() {
   return (
     <div className="flex justify-center items-center min-h-[75vh] px-4">
       <div className="bg-white dark:bg-gray-800 p-8 md:p-10 rounded-3xl shadow-xl border border-gray-100 dark:border-gray-700 w-full max-w-md transition-all transform hover:-translate-y-1">
-        
+
         <div className="text-center mb-8">
           <h2 className="text-3xl font-extrabold text-gray-900 dark:text-white mb-2">
             {showOTP ? "Verify Your Email" : "Welcome Back"}
@@ -89,7 +91,7 @@ export default function Login() {
             {showOTP ? `Enter the 6-digit OTP sent to ${verifyEmail}` : "Sign in to your Neuralite account"}
           </p>
         </div>
-        
+
         {!showOTP ? (
           <form onSubmit={handleSubmit} className="space-y-6">
             <div>
@@ -135,7 +137,7 @@ export default function Login() {
             <button type="button" onClick={() => setShowOTP(false)} className="w-full bg-gray-200 hover:bg-gray-300 text-gray-800 font-bold py-3 rounded-xl shadow-sm mt-2">Back to Login</button>
           </form>
         )}
-        
+
         {!showOTP && (
           <p className="mt-8 text-center text-gray-600 dark:text-gray-400 text-sm">
             Don't have an account? <Link to="/register" className="text-primary font-bold hover:underline">Create one now</Link>
