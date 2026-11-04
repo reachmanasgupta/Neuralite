@@ -97,6 +97,8 @@ def generate_with_fallback(contents, system_instruction=None):
     (Quota Exceeded/429), toh yeh automatically agli key try karta hai.
     """
     global current_key_index
+    if not API_KEYS:
+        raise RuntimeError("Gemini API key configured nahi hai. Render Environment mein GEMINI_API_KEY_1 ya GEMINI_API_KEY add karein.")
     max_retries = len(API_KEYS)
     
     for attempt in range(max_retries):
@@ -222,11 +224,18 @@ def chat_text():
         chat_sessions[user_id].append({"role": "user", "parts": [user_message]})
 
         try:
-            # TRY WITH SYSTEM INSTRUCTIONS
-            response = generate_with_fallback(chat_sessions[user_id], system_instruction=system_text)
+            # Pehle system instruction ke saath AI response lene ki koshish karein.
+            response = generate_with_fallback(
+                chat_sessions[user_id],
+                system_instruction=system_text
+            )
             bot_reply = response.text
+
+        except Exception as e:
+            # Sirf system_instruction compatibility error par fallback use karein.
+            err_str = str(e).lower()
             if "system_instruction" in err_str or "support" in err_str:
-                print(f"⚠️ System Instruction reject ho gayi. Fallback lag raha hai...")
+                print("⚠️ System Instruction reject ho gayi. Fallback lag raha hai...")
                 fallback_history = [
                     {"role": "user", "parts": [system_text]},
                     {"role": "model", "parts": ["Understood. I am Neuralite."]}
@@ -234,7 +243,7 @@ def chat_text():
                 response = generate_with_fallback(fallback_history)
                 bot_reply = response.text
             else:
-                raise e # This will catch out of limit exceptions
+                raise
 
         chat_sessions[user_id].append({"role": "model", "parts": [bot_reply]})
         return jsonify({"message": bot_reply})
